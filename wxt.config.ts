@@ -4,18 +4,11 @@ import { defineConfig } from "wxt";
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   manifest: {
-    name: "YTDimmer",
+    name: "Flash Guard",
     description:
-      "Automatically detects and dims bright flashes in videos to prevent eye strain",
+      "Automatically detects and dims bright flashes and white pages to prevent eye strain",
     permissions: ["storage"],
-    host_permissions: [
-      "*://www.youtube.com/*",
-      "*://youtube.com/*",
-      "*://www.twitch.tv/*",
-      "*://twitch.tv/*",
-      "*://vimeo.com/*",
-      "*://www.vimeo.com/*",
-    ],
+    host_permissions: ["<all_urls>"],
     web_accessible_resources: [
       {
         resources: ["*.js", "*.css"],

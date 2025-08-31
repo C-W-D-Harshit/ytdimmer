@@ -1,15 +1,7 @@
 import { browser } from "wxt/browser";
 
 export default defineContentScript({
-  matches: [
-    "*://www.youtube.com/*",
-    "*://youtube.com/*",
-    "*://www.twitch.tv/*",
-    "*://twitch.tv/*",
-    "*://vimeo.com/*",
-    "*://www.vimeo.com/*",
-    "*://*/*",
-  ],
+  matches: ["<all_urls>"],
   main() {
     let isEnabled = true;
     let dimLevel = 0.5; // How much to dim (0.1 = light, 0.9 = maximum)
@@ -18,12 +10,13 @@ export default defineContentScript({
     let monitoringInterval: number | null = null;
     let currentDimLevel = 0;
     let lastBrightness = 0;
+    let pageOverlay: HTMLDivElement | null = null;
 
-    // Canvas for analyzing video frames
+    // Canvas for analyzing video frames and page content
     let analysisCanvas: HTMLCanvasElement | null = null;
     let analysisContext: CanvasRenderingContext2D | null = null;
 
-    function initializeYtDimmer() {
+    function initializeDimmer() {
       // Load settings from storage
       browser.storage.sync
         .get([
@@ -76,6 +69,100 @@ export default defineContentScript({
           willReadFrequently: true,
         });
       }
+    }
+
+    function calculatePageBrightness(): number {
+      // Get page background color and body styles
+      const body = document.body;
+      const html = document.documentElement;
+      
+      // Get computed styles
+      const bodyStyle = window.getComputedStyle(body);
+      const htmlStyle = window.getComputedStyle(html);
+      
+      // Check background colors
+      const bodyBg = bodyStyle.backgroundColor;
+      const htmlBg = htmlStyle.backgroundColor;
+      
+      // Function to extract RGB values and calculate brightness
+      function getBrightnessFromColor(colorString: string): number {
+        const match = colorString.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (match) {
+          const [, r, g, b] = match.map(Number);
+          return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        }
+        return 0;
+      }
+      
+      let pageBrightness = 0;
+      
+      // Check body background
+      if (bodyBg && bodyBg !== 'rgba(0, 0, 0, 0)' && bodyBg !== 'transparent') {
+        pageBrightness = Math.max(pageBrightness, getBrightnessFromColor(bodyBg));
+      }
+      
+      // Check html background
+      if (htmlBg && htmlBg !== 'rgba(0, 0, 0, 0)' && htmlBg !== 'transparent') {
+        pageBrightness = Math.max(pageBrightness, getBrightnessFromColor(htmlBg));
+      }
+      
+      // If no background color found, assume white (common default)
+      if (pageBrightness === 0) {
+        // Check if page looks white by sampling some elements
+        const mainContent = document.querySelector('main, [role="main"], .content, .main') || document.body;
+        const contentStyle = window.getComputedStyle(mainContent);
+        const contentBg = contentStyle.backgroundColor;
+        
+        if (contentBg && contentBg !== 'rgba(0, 0, 0, 0)' && contentBg !== 'transparent') {
+          pageBrightness = getBrightnessFromColor(contentBg);
+        } else {
+          // Default assumption for pages without explicit background
+          pageBrightness = 1.0; // Assume bright/white
+        }
+      }
+      
+      return pageBrightness;
+    }
+
+    function createPageOverlay(): void {
+      if (pageOverlay) return;
+      
+      pageOverlay = document.createElement('div');
+      pageOverlay.id = 'flash-guard-overlay';
+      pageOverlay.style.cssText = `
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        background: rgba(0, 0, 0, 0) !important;
+        pointer-events: none !important;
+        z-index: 999999 !important;
+        transition: background-color 0.3s ease-out !important;
+      `;
+      
+      document.documentElement.appendChild(pageOverlay);
+    }
+
+    function updatePageDimming(targetDimLevel: number): void {
+      if (!pageOverlay) {
+        createPageOverlay();
+      }
+      
+      if (pageOverlay) {
+        const opacity = Math.min(0.8, targetDimLevel); // Max 80% dimming
+        pageOverlay.style.backgroundColor = `rgba(0, 0, 0, ${opacity})`;
+      }
+      
+      currentDimLevel = targetDimLevel;
+    }
+
+    function removePageDimming(): void {
+      if (pageOverlay) {
+        pageOverlay.remove();
+        pageOverlay = null;
+      }
+      currentDimLevel = 0;
     }
 
     function calculateBrightness(video: HTMLVideoElement): number {
@@ -148,15 +235,15 @@ export default defineContentScript({
         currentVideo.style.transition = "";
       }
       currentVideo = null;
-      currentDimLevel = 0;
+      removePageDimming();
     }
 
-    function monitorVideos(): void {
+    function monitorContent(): void {
       // First check if extension is enabled
       if (!isEnabled) {
         // If disabled, make sure to remove any existing dimming
         if (currentDimLevel > 0) {
-          updateDimLevel(0);
+          removeDimming();
         }
         return;
       }
@@ -165,10 +252,13 @@ export default defineContentScript({
         "video"
       ) as NodeListOf<HTMLVideoElement>;
 
-      if (videos.length === 0) return;
+      let hasActiveVideo = false;
+      let videoBrightness = 0;
 
+      // Check for active videos first (priority over page dimming)
       videos.forEach((video) => {
         if (video.readyState >= 2 && !video.paused && video.currentTime > 0) {
+          hasActiveVideo = true;
           // Ensure we're tracking this video
           applyDimming(video);
 
@@ -176,6 +266,7 @@ export default defineContentScript({
 
           if (brightness > 0) {
             lastBrightness = brightness;
+            videoBrightness = brightness;
 
             // Calculate gradual dimming based on brightness
             let targetDimLevel = 0;
@@ -209,6 +300,41 @@ export default defineContentScript({
           }
         }
       });
+
+      // If no active video, check page brightness
+      if (!hasActiveVideo) {
+        // Remove video dimming if present
+        if (currentVideo) {
+          currentVideo.style.filter = "";
+          currentVideo.style.transition = "";
+          currentVideo = null;
+        }
+
+        const pageBrightness = calculatePageBrightness();
+        
+        if (pageBrightness > 0) {
+          lastBrightness = pageBrightness;
+
+          let targetDimLevel = 0;
+          
+          // Apply dimming if page is bright enough
+          if (pageBrightness > brightnessThreshold) {
+            // Scale dimming based on page brightness
+            const brightnessRange = 1.0 - brightnessThreshold;
+            const brightnessFactor = Math.min(1.0, (pageBrightness - brightnessThreshold) / brightnessRange);
+            targetDimLevel = dimLevel * brightnessFactor;
+          }
+
+          // Smooth transition to target dim level
+          const dimDifference = Math.abs(targetDimLevel - currentDimLevel);
+          if (dimDifference > 0.05) {
+            updatePageDimming(targetDimLevel);
+          }
+        }
+      } else {
+        // Remove page overlay if video is active
+        removePageDimming();
+      }
     }
 
     function startMonitoring(): void {
@@ -217,7 +343,7 @@ export default defineContentScript({
       createAnalysisCanvas();
 
       // Monitor at 30 FPS for smooth response - always monitor so we can remove dimming when disabled
-      monitoringInterval = window.setInterval(monitorVideos, 33);
+      monitoringInterval = window.setInterval(monitorContent, 33);
     }
 
     function stopMonitoring(): void {
@@ -230,24 +356,22 @@ export default defineContentScript({
     // Initialize when page loads
     function init() {
       if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", initializeYtDimmer);
+        document.addEventListener("DOMContentLoaded", initializeDimmer);
       } else {
-        initializeYtDimmer();
+        initializeDimmer();
       }
 
-      // Also try after a short delay to catch dynamically loaded videos
-      setTimeout(initializeYtDimmer, 1000);
-      setTimeout(initializeYtDimmer, 3000);
+      // Also try after a short delay to catch dynamically loaded content
+      setTimeout(initializeDimmer, 1000);
+      setTimeout(initializeDimmer, 3000);
     }
 
     init();
 
-    // Handle dynamic video loading (SPA navigation)
+    // Handle dynamic content loading (SPA navigation)
     const observer = new MutationObserver(() => {
-      if (isEnabled && document.querySelectorAll("video").length > 0) {
-        if (!monitoringInterval) {
-          startMonitoring();
-        }
+      if (isEnabled && !monitoringInterval) {
+        startMonitoring();
       }
     });
 
