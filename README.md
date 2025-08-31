@@ -25,10 +25,10 @@ YT Dimmer is a Chrome extension that automatically detects bright content in vid
 
 ## 🚀 Installation
 
-### From Chrome Web Store (Coming Soon)
+### From Chrome Web Store
 
 1. Visit the Chrome Web Store
-2. Search for "YTDimmer"
+2. Search for "YT Dimmer"
 3. Click "Add to Chrome"
 
 ### Manual Installation (Development)
@@ -161,8 +161,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - 🐛 **Bug Reports**: [GitHub Issues](https://github.com/c-w-d-harshit/ytdimmer/issues)
 - 💡 **Feature Requests**: [GitHub Discussions](https://github.com/c-w-d-harshit/ytdimmer/discussions)
-- 📧 **Email**: <support@ytdimmer.com>
+- 📧 **Email**: <cwd.harshit911@gmail.com>
 
 ---
 
-**Made with ❤️ for developers who care about eye health**
+**Made with ❤️ by Harshit**
