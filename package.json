@@ -1,5 +1,5 @@
 {
-  "name": "YT Dimmer – Block Flash Bangs",
+  "name": "YT Dimmer – Smart Brightness Control",
   "description": "Automatically detects and dims bright flashes in videos to prevent eye strain",
   "private": true,
   "version": "1.0.1",
