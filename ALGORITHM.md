@@ -1,10 +1,10 @@
-# 🔬 YTDimmer Brightness Detection Algorithm
+# 🔬 YT Dimmer Brightness Detection Algorithm
 
-This document explains the technical details of how YTDimmer detects and responds to bright video content in real-time.
+This document explains the technical details of how YT Dimmer detects and responds to bright video content in real-time.
 
 ## Overview
 
-YTDimmer uses a sophisticated canvas-based frame analysis system that continuously monitors video brightness at 30 FPS and applies CSS filters when bright content is detected.
+YT Dimmer uses a sophisticated canvas-based frame analysis system that continuously monitors video brightness at 30 FPS and applies CSS filters when bright content is detected.
 
 ## Core Algorithm
 
@@ -109,13 +109,13 @@ function monitorVideos() {
     // Start dimming - use user-defined dim level
     updateDimLevel(dimLevel); // User configurable (0.1 - 0.9)
     console.log(
-      "YTDimmer: Bright content detected! Applying dim level:",
+      "YT Dimmer: Bright content detected! Applying dim level:",
       dimLevel
     );
   } else if (!shouldDim && currentDimLevel > 0) {
     // Stop dimming - return to normal
     updateDimLevel(0);
-    console.log("YTDimmer: Content no longer bright, removing dimming");
+    console.log("YT Dimmer: Content no longer bright, removing dimming");
   }
 }
 ```
@@ -243,7 +243,7 @@ Video Frame → Canvas Draw → Pixel Sampling → Luminance Calc → Threshold 
 | Server analysis     | ✅ High   | ❌ Poor      | ❌ None | ❌ Limited    |
 | Histogram analysis  | ⚠️ Medium | ❌ Poor      | ✅ Full | ✅ Good       |
 
-YTDimmer's canvas-based approach provides the optimal balance of accuracy, performance, privacy, and compatibility.
+YT Dimmer's canvas-based approach provides the optimal balance of accuracy, performance, privacy, and compatibility.
 
 ---
 

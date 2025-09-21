@@ -79,15 +79,15 @@
   justify-content: center;
   width: 48px;
   height: 48px;
-  background: var(--primary);
+  background: transparent;
   border-radius: 12px;
   color: var(--primary-foreground);
   box-shadow: var(--shadow-sm);
 }
 
-.shield-icon svg {
-  width: 24px;
-  height: 24px;
+.shield-icon img {
+  width: 48px;
+  height: 48px;
 }
 
 .brand {

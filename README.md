@@ -130,7 +130,7 @@ ytdimmer/
 
 ## 🔒 Privacy & Security
 
-- **No Data Collection** - YTDimmer doesn't collect or transmit any user data
+- **No Data Collection** - YT Dimmer doesn't collect or transmit any user data
 - **Local Processing** - All video analysis happens locally on your device
 - **Minimal Permissions** - Only requests necessary permissions for functionality
 - **Open Source** - Full source code available for transparency

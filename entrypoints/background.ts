@@ -53,13 +53,6 @@ export default defineBackground(() => {
   // Also update on extension startup (when browser starts or extension is enabled)
   updateDimLevelForTimeOfDay();
 
-  // Handle keyboard commands
-  browser.commands.onCommand.addListener((command) => {
-    if (command === 'toggle-popup') {
-      browser.action.openPopup();
-    }
-  });
-
   // Handle messages from content scripts or popup
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'getSettings') {

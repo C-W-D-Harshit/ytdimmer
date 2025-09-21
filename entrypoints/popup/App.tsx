@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { browser } from "wxt/browser";
 import "./App.css";
+import Icon from "@/assets/icon.png"
 
 function App() {
   const [isEnabled, setIsEnabled] = useState(true);
@@ -78,31 +79,10 @@ function App() {
         <div className="header-content">
           <div className="logo">
             <div className="shield-icon">
-              <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M12 2L3 6V11C3 16.55 6.84 21.74 12 23C17.16 21.74 21 16.55 21 11V6L12 2Z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M9 12L11 14L15 10"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              <img src={Icon} alt="YT Dimmer" />
             </div>
             <div className="brand">
-              <h1>YTDimmer</h1>
+              <h1>YT Dimmer</h1>
               <span className="tagline">Eye Protection</span>
             </div>
           </div>
