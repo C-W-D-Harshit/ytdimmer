@@ -1,266 +1,311 @@
 import { browser } from "wxt/browser";
+import {
+  calculateFrameMetrics,
+  createDetectorState,
+  evaluateFrame,
+  type DetectorState,
+} from "../lib/detector";
+import {
+  getEffectiveDimLevel,
+  getSettings,
+  isSitePaused,
+  storageChangesTouchSettings,
+  type DimmerSettings,
+  type RuntimeStatus,
+} from "../lib/settings";
+
+interface VideoState {
+  detector: DetectorState;
+  originalFilter: string;
+  originalTransition: string;
+  targetDimLevel: number;
+  restoreTimer: number | null;
+}
+
+const ANALYSIS_WIDTH = 48;
+const ANALYSIS_HEIGHT = 27;
+const FALLBACK_FRAME_DELAY = 80;
 
 export default defineContentScript({
-  matches: [
-    "*://www.youtube.com/*",
-    "*://youtube.com/*",
-    "*://www.twitch.tv/*",
-    "*://twitch.tv/*",
-    "*://vimeo.com/*",
-    "*://www.vimeo.com/*",
-    "*://*/*",
-  ],
+  matches: ["<all_urls>"],
   main() {
-    let isEnabled = true;
-    let dimLevel = 0.5; // How much to dim (0.1 = light, 0.9 = maximum)
-    let brightnessThreshold = 0.6; // When to trigger dimming (0.1 = sensitive, 1.0 = only very bright)
-    let currentVideo: HTMLVideoElement | null = null;
-    let monitoringInterval: number | null = null;
-    let currentDimLevel = 0;
+    let settings: DimmerSettings;
+    let activeVideo: HTMLVideoElement | null = null;
+    let scheduledFrame: number | null = null;
+    let fallbackFrame: number | null = null;
     let lastBrightness = 0;
+    let protectionActive = false;
+    let protectionCount = 0;
+    let countedCurrentActivation = false;
+    let refreshQueued = false;
+    let destroyed = false;
 
-    // Canvas for analyzing video frames
-    let analysisCanvas: HTMLCanvasElement | null = null;
-    let analysisContext: CanvasRenderingContext2D | null = null;
+    const videoStates = new WeakMap<HTMLVideoElement, VideoState>();
+    const canvas = document.createElement("canvas");
+    canvas.width = ANALYSIS_WIDTH;
+    canvas.height = ANALYSIS_HEIGHT;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    let analysisAvailable = Boolean(context);
 
-    function initializeYtDimmer() {
-      // Load settings from storage
-      browser.storage.sync
-        .get([
-          "ytDimmerEnabled",
-          "ytDimmerDimLevel",
-          "ytDimmerBrightnessThreshold",
-        ])
-        .then((result) => {
-          isEnabled = result.ytDimmerEnabled !== false; // Default to true
-          dimLevel = result.ytDimmerDimLevel || 0.5;
-          brightnessThreshold = result.ytDimmerBrightnessThreshold || 0.6;
+    void initialize();
 
-          // Always start monitoring so we can remove dimming when disabled
-          startMonitoring();
-        })
-        .catch((err) => {
-          // Use defaults on storage error
-          isEnabled = true;
-          dimLevel = 0.5;
-          brightnessThreshold = 0.6;
-          // Always start monitoring so we can remove dimming when disabled
-          startMonitoring();
-        });
+    async function initialize(): Promise<void> {
+      settings = await getSettings();
+      protectionCount = await getTodayProtectionCount();
+      browser.storage.onChanged.addListener(handleStorageChange);
+      browser.runtime.onMessage.addListener(handleMessage);
+      document.addEventListener("play", refreshActiveVideo, true);
+      document.addEventListener("pause", refreshActiveVideo, true);
+      document.addEventListener("emptied", refreshActiveVideo, true);
+      document.addEventListener("fullscreenchange", refreshActiveVideo);
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+      refreshActiveVideo();
+    }
 
-      // Listen for settings changes
-      browser.storage.onChanged.addListener((changes) => {
-        if (changes.ytDimmerEnabled) {
-          isEnabled = changes.ytDimmerEnabled.newValue;
-          // If disabled, immediately remove any dimming
-          if (!isEnabled) {
-            removeDimming();
-          }
-        }
-        if (changes.ytDimmerDimLevel) {
-          dimLevel = changes.ytDimmerDimLevel.newValue;
-        }
-        if (changes.ytDimmerBrightnessThreshold) {
-          brightnessThreshold = changes.ytDimmerBrightnessThreshold.newValue;
-        }
+    const observer = new MutationObserver(() => queueActiveVideoRefresh());
+
+    function queueActiveVideoRefresh(): void {
+      if (refreshQueued) return;
+      refreshQueued = true;
+      requestAnimationFrame(() => {
+        refreshQueued = false;
+        refreshActiveVideo();
       });
     }
 
-    function createAnalysisCanvas(): void {
-      if (!analysisCanvas) {
-        analysisCanvas = document.createElement("canvas");
-        analysisCanvas.width = 64; // Small size for performance
-        analysisCanvas.height = 36;
-        // Use willReadFrequently for faster repeated getImageData reads
-        analysisContext = analysisCanvas.getContext("2d", {
-          willReadFrequently: true,
-        });
-      }
+    const handleStorageChange: Parameters<
+      typeof browser.storage.onChanged.addListener
+    >[0] = async (changes, areaName): Promise<void> => {
+      if (areaName !== "sync" || !storageChangesTouchSettings(changes)) return;
+      settings = await getSettings();
+      refreshActiveVideo();
+    };
+
+    const handleMessage: Parameters<
+      typeof browser.runtime.onMessage.addListener
+    >[0] = (message, _sender, sendResponse): true | undefined => {
+      if (message.type !== "ytDimmer:getStatus") return undefined;
+      sendResponse(getRuntimeStatus());
+      return true;
+    };
+
+    function getRuntimeStatus(): RuntimeStatus {
+      const paused = settings ? isSitePaused(settings, location.hostname) : false;
+      const videos = document.querySelectorAll("video");
+      return {
+        available: analysisAvailable,
+        enabled: Boolean(settings?.enabled),
+        sitePaused: paused,
+        videoDetected: videos.length > 0,
+        videoPlaying: Boolean(activeVideo && !activeVideo.paused),
+        brightness: lastBrightness,
+        protectionActive,
+        protectionCount,
+        hostname: location.hostname,
+      };
     }
 
-    function calculateBrightness(video: HTMLVideoElement): number {
-      if (!analysisContext || !analysisCanvas) return 0;
+    function refreshActiveVideo(): void {
+      if (destroyed || !settings) return;
+      const shouldRun =
+        settings.enabled && !isSitePaused(settings, location.hostname);
+      const nextVideo = shouldRun ? findDominantVideo() : null;
 
-      try {
-        // Draw video frame to small canvas for analysis
-        analysisContext.drawImage(
-          video,
-          0,
-          0,
-          analysisCanvas.width,
-          analysisCanvas.height
-        );
-        const imageData = analysisContext.getImageData(
-          0,
-          0,
-          analysisCanvas.width,
-          analysisCanvas.height
-        );
-        const data = imageData.data;
-
-        let totalBrightness = 0;
-        let pixelCount = 0;
-
-        // Sample every 4th pixel for performance
-        for (let i = 0; i < data.length; i += 16) {
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
-
-          // Calculate luminance using standard formula
-          const brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-          totalBrightness += brightness;
-          pixelCount++;
-        }
-
-        return pixelCount > 0 ? totalBrightness / pixelCount : 0;
-      } catch (error) {
-        // Handle CORS issues or other errors silently
-        return lastBrightness;
-      }
-    }
-
-    function applyDimming(video: HTMLVideoElement): void {
-      if (currentVideo !== video) {
-        // Remove dimming from previous video
-        removeDimming();
-        currentVideo = video;
-      }
-    }
-
-    function updateDimLevel(targetDimLevel: number): void {
-      if (!currentVideo) return;
-
-      currentDimLevel = targetDimLevel;
-
-      // Apply brightness filter directly to video with smoother gradual dimming
-      const brightness = Math.max(0.1, 1 - currentDimLevel * 0.9); // Allow darker dimming, min 10% brightness
-      const filters = `brightness(${brightness})`;
-
-      currentVideo.style.filter = filters;
-      // Use longer transition for smoother gradual changes
-      currentVideo.style.transition = "filter 0.3s ease-out";
-    }
-
-    function removeDimming(): void {
-      if (currentVideo) {
-        currentVideo.style.filter = "";
-        currentVideo.style.transition = "";
-      }
-      currentVideo = null;
-      currentDimLevel = 0;
-    }
-
-    function monitorVideos(): void {
-      // First check if extension is enabled
-      if (!isEnabled) {
-        // If disabled, make sure to remove any existing dimming
-        if (currentDimLevel > 0) {
-          updateDimLevel(0);
+      if (nextVideo === activeVideo) {
+        if (nextVideo && scheduledFrame === null && fallbackFrame === null) {
+          scheduleNextFrame();
         }
         return;
       }
 
-      const videos = document.querySelectorAll(
-        "video"
-      ) as NodeListOf<HTMLVideoElement>;
+      cancelScheduledFrame();
+      if (activeVideo) restoreVideo(activeVideo, true);
+      activeVideo = nextVideo;
+      protectionActive = false;
+      countedCurrentActivation = false;
+      if (activeVideo) scheduleNextFrame();
+    }
 
-      if (videos.length === 0) return;
+    function findDominantVideo(): HTMLVideoElement | null {
+      const videos = Array.from(
+        document.querySelectorAll<HTMLVideoElement>("video"),
+      );
+      let winner: HTMLVideoElement | null = null;
+      let winnerScore = 0;
 
-      videos.forEach((video) => {
-        if (video.readyState >= 2 && !video.paused && video.currentTime > 0) {
-          // Ensure we're tracking this video
-          applyDimming(video);
-
-          const brightness = calculateBrightness(video);
-
-          if (brightness > 0) {
-            lastBrightness = brightness;
-
-            // Calculate gradual dimming based on brightness
-            let targetDimLevel = 0;
-            
-            // Start dimming at a lower threshold for gradual effect
-            const gradualStartThreshold = Math.max(0.3, brightnessThreshold - 0.3);
-            
-            if (brightness > gradualStartThreshold) {
-              // Calculate dimming intensity based on how bright the scene is
-              const brightnessRange = 1.0 - gradualStartThreshold;
-              const brightnessFactor = Math.min(1.0, (brightness - gradualStartThreshold) / brightnessRange);
-              
-              // Apply gradual dimming that increases with brightness
-              if (brightness > brightnessThreshold) {
-                // Above user threshold: apply full user-defined dimming (bright/white scenes)
-                targetDimLevel = dimLevel;
-              } else {
-                // Below user threshold but above gradual start: apply much lighter dimming for normal scenes
-                // Use brightness level to determine dimming intensity - higher brightness = more dimming
-                const normalSceneDimming = brightness > 0.7 ? 0.3 : 0.15; // Very light dimming for non-white backgrounds
-                targetDimLevel = dimLevel * brightnessFactor * normalSceneDimming;
-              }
-            }
-
-            // Smooth transition to target dim level
-            const dimDifference = Math.abs(targetDimLevel - currentDimLevel);
-            if (dimDifference > 0.05) {
-              // Only update if the change is significant enough
-              updateDimLevel(targetDimLevel);
-            }
-          }
+      for (const video of videos) {
+        if (video.paused || video.ended || video.readyState < 2) continue;
+        const rect = video.getBoundingClientRect();
+        const visibleWidth = Math.max(
+          0,
+          Math.min(rect.right, innerWidth) - Math.max(rect.left, 0),
+        );
+        const visibleHeight = Math.max(
+          0,
+          Math.min(rect.bottom, innerHeight) - Math.max(rect.top, 0),
+        );
+        const score = visibleWidth * visibleHeight;
+        if (score > winnerScore) {
+          winner = video;
+          winnerScore = score;
         }
-      });
-    }
-
-    function startMonitoring(): void {
-      if (monitoringInterval) return;
-
-      createAnalysisCanvas();
-
-      // Monitor at 30 FPS for smooth response - always monitor so we can remove dimming when disabled
-      monitoringInterval = window.setInterval(monitorVideos, 33);
-    }
-
-    function stopMonitoring(): void {
-      if (monitoringInterval) {
-        clearInterval(monitoringInterval);
-        monitoringInterval = null;
       }
+      return winner;
     }
 
-    // Initialize when page loads
-    function init() {
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", initializeYtDimmer);
+    function scheduleNextFrame(): void {
+      if (!activeVideo || destroyed) return;
+      if (activeVideo.requestVideoFrameCallback) {
+        scheduledFrame = activeVideo.requestVideoFrameCallback(processFrame);
       } else {
-        initializeYtDimmer();
+        fallbackFrame = window.setTimeout(processFrame, FALLBACK_FRAME_DELAY);
       }
-
-      // Also try after a short delay to catch dynamically loaded videos
-      setTimeout(initializeYtDimmer, 1000);
-      setTimeout(initializeYtDimmer, 3000);
     }
 
-    init();
-
-    // Handle dynamic video loading (SPA navigation)
-    const observer = new MutationObserver(() => {
-      if (isEnabled && document.querySelectorAll("video").length > 0) {
-        if (!monitoringInterval) {
-          startMonitoring();
-        }
+    function processFrame(): void {
+      scheduledFrame = null;
+      fallbackFrame = null;
+      const video = activeVideo;
+      if (!video || video.paused || video.ended || !context) {
+        refreshActiveVideo();
+        return;
       }
-    });
 
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
+      try {
+        context.drawImage(video, 0, 0, ANALYSIS_WIDTH, ANALYSIS_HEIGHT);
+        const pixels = context.getImageData(
+          0,
+          0,
+          ANALYSIS_WIDTH,
+          ANALYSIS_HEIGHT,
+        ).data;
+        const metrics = calculateFrameMetrics(pixels, 2);
+        analysisAvailable = true;
+        const state = getVideoState(video);
+        const detection = evaluateFrame(state.detector, metrics, {
+          brightnessThreshold: settings.brightnessThreshold,
+          dimLevel: getEffectiveDimLevel(settings),
+        });
 
-    // Cleanup on page unload
-    window.addEventListener("beforeunload", () => {
-      stopMonitoring();
-      removeDimming();
-      observer.disconnect();
-    });
+        lastBrightness = detection.brightness;
+        applyDimLevel(video, state, detection.targetDimLevel);
+        protectionActive = detection.protectionActive;
+
+        if (detection.flashDetected && !countedCurrentActivation) {
+          countedCurrentActivation = true;
+          protectionCount += 1;
+          void saveTodayProtectionCount(protectionCount);
+        } else if (!detection.protectionActive) {
+          countedCurrentActivation = false;
+        }
+      } catch {
+        // Some cross-origin video sources prevent canvas reads. Keep playback
+        // untouched and retry later in case the media source changes.
+        protectionActive = false;
+        analysisAvailable = false;
+        restoreVideo(video);
+      }
+
+      scheduleNextFrame();
+    }
+
+    function getVideoState(video: HTMLVideoElement): VideoState {
+      let state = videoStates.get(video);
+      if (!state) {
+        state = {
+          detector: createDetectorState(),
+          originalFilter: video.style.filter,
+          originalTransition: video.style.transition,
+          targetDimLevel: 0,
+          restoreTimer: null,
+        };
+        videoStates.set(video, state);
+      }
+      return state;
+    }
+
+    function applyDimLevel(
+      video: HTMLVideoElement,
+      state: VideoState,
+      target: number,
+    ): void {
+      if (Math.abs(target - state.targetDimLevel) < 0.025) return;
+      const isAttack = target > state.targetDimLevel;
+      state.targetDimLevel = target;
+      if (state.restoreTimer) window.clearTimeout(state.restoreTimer);
+
+      const brightness = Math.max(0.16, 1 - target * 0.88);
+      const dimFilter = target > 0 ? `brightness(${brightness.toFixed(3)})` : "";
+      video.style.filter = [dimFilter, state.originalFilter].filter(Boolean).join(" ");
+      video.style.transition = `filter ${isAttack ? 40 : 620}ms ${
+        isAttack ? "linear" : "cubic-bezier(.2,.8,.2,1)"
+      }`;
+
+      if (target === 0) {
+        state.restoreTimer = window.setTimeout(() => {
+          video.style.filter = state.originalFilter;
+          video.style.transition = state.originalTransition;
+          state.restoreTimer = null;
+        }, 650);
+      }
+    }
+
+    function restoreVideo(video: HTMLVideoElement, immediately = false): void {
+      const state = videoStates.get(video);
+      if (!state) return;
+      if (state.restoreTimer) window.clearTimeout(state.restoreTimer);
+      if (immediately) {
+        video.style.filter = state.originalFilter;
+        video.style.transition = state.originalTransition;
+        state.targetDimLevel = 0;
+      } else {
+        applyDimLevel(video, state, 0);
+      }
+    }
+
+    function cancelScheduledFrame(): void {
+      if (
+        activeVideo?.cancelVideoFrameCallback &&
+        scheduledFrame !== null
+      ) {
+        activeVideo.cancelVideoFrameCallback(scheduledFrame);
+      }
+      if (fallbackFrame !== null) window.clearTimeout(fallbackFrame);
+      scheduledFrame = null;
+      fallbackFrame = null;
+    }
+
+    async function getTodayProtectionCount(): Promise<number> {
+      const key = dailyCountKey();
+      const stored = await browser.storage.local.get(key);
+      return stored[key] ?? 0;
+    }
+
+    async function saveTodayProtectionCount(count: number): Promise<void> {
+      await browser.storage.local.set({ [dailyCountKey()]: count });
+    }
+
+    function dailyCountKey(): string {
+      const today = new Date();
+      const date = [
+        today.getFullYear(),
+        String(today.getMonth() + 1).padStart(2, "0"),
+        String(today.getDate()).padStart(2, "0"),
+      ].join("-");
+      return `ytDimmerProtectionCount:${date}`;
+    }
+
+    window.addEventListener(
+      "pagehide",
+      () => {
+        destroyed = true;
+        cancelScheduledFrame();
+        if (activeVideo) restoreVideo(activeVideo, true);
+        observer.disconnect();
+        browser.storage.onChanged.removeListener(handleStorageChange);
+        browser.runtime.onMessage.removeListener(handleMessage);
+      },
+      { once: true },
+    );
   },
 });
