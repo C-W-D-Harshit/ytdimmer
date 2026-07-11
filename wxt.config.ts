@@ -2,25 +2,20 @@ import { defineConfig } from "wxt";
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
-  modules: ["@wxt-dev/module-react",'@wxt-dev/auto-icons'],
+  modules: ["@wxt-dev/module-react", "@wxt-dev/auto-icons"],
   manifest: {
-    // name: "YT Dimmer",
-    // description:
-    //   "Automatically detects and dims bright flashes in videos to prevent eye strain",
-    permissions: ["storage"],
-    host_permissions: [
-      "*://www.youtube.com/*",
-      "*://youtube.com/*",
-      "*://www.twitch.tv/*",
-      "*://twitch.tv/*",
-      "*://vimeo.com/*",
-      "*://www.vimeo.com/*",
-    ],
-    web_accessible_resources: [
-      {
-        resources: ["*.js", "*.css"],
-        matches: ["<all_urls>"],
+    name: "YT Dimmer",
+    description:
+      "Softens sudden flashes and bright video scenes for more comfortable viewing.",
+    permissions: ["storage", "activeTab"],
+    commands: {
+      "toggle-protection": {
+        suggested_key: {
+          default: "Alt+Shift+D",
+          mac: "Alt+Shift+D",
+        },
+        description: "Toggle YT Dimmer protection",
       },
-    ],
+    },
   },
 });
