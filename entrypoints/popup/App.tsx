@@ -82,10 +82,8 @@ function App() {
 
   if (!settings) {
     return (
-      <main className="popup-shell loading-shell" aria-live="polite">
-        <div className="loading-mark">
-          <img src={Icon} alt="" />
-        </div>
+      <main className="popup loading" aria-live="polite">
+        <img src={Icon} alt="" />
         <p>Preparing your night shield…</p>
       </main>
     );
@@ -134,135 +132,139 @@ function App() {
   };
 
   return (
-    <main className="popup-shell">
-      <header className="topbar">
-        <div className="brand-lockup">
-          <img src={Icon} alt="" className="brand-icon" />
-          <div>
-            <p className="eyebrow">Night viewing utility</p>
-            <h1>YT Dimmer</h1>
-          </div>
+    <main className="popup">
+      <header className="app-bar">
+        <div className="brand">
+          <img src={Icon} alt="" className="brand-mark" />
+          <span className="brand-name">YT Dimmer</span>
         </div>
-        <span className={`save-state ${saveState}`} aria-live="polite">
-          {saveState === "saved" ? "Saved" : saveState === "error" ? "Retry" : "v2.0"}
+        <span
+          className={`status-pill ${effectiveEnabled ? "on" : "off"}`}
+          aria-live="polite"
+        >
+          <i />
+          {saveState === "saved"
+            ? "Saved"
+            : saveState === "error"
+              ? "Retry"
+              : effectiveEnabled
+                ? "Active"
+                : "Off"}
         </span>
       </header>
 
-      <section className={`protection-hero ${effectiveEnabled ? "is-on" : "is-off"}`}>
-        <div className="orb-wrap" aria-hidden="true">
-          <div className="orbit" />
-          <div className="moon-orb">
-            <span className="moon-cutout" />
+      <div className="stack">
+        <section className={`card power-card ${effectiveEnabled ? "is-on" : "is-off"}`}>
+          <div className="power-copy">
+            <span className="kicker">
+              {status.protectionActive ? "Softening now" : "Protection"}
+            </span>
+            <h2 className="power-title">{statusText}</h2>
+            <p className="power-desc">{getStatusDescription(settings, status)}</p>
           </div>
-        </div>
-        <div className="hero-copy">
-          <span className="status-kicker">
-            <i className={status.protectionActive ? "pulse" : ""} />
-            {status.protectionActive ? "Softening now" : "Protection status"}
-          </span>
-          <h2>{statusText}</h2>
-          <p>{getStatusDescription(settings, status)}</p>
-        </div>
-        <button
-          type="button"
-          className="power-button"
-          aria-pressed={settings.enabled}
-          aria-label={settings.enabled ? "Disable protection" : "Enable protection"}
-          onClick={() => void updateSettings({ enabled: !settings.enabled })}
-        >
-          <PowerIcon />
-        </button>
-      </section>
-
-      <section className="site-panel" aria-label="Current site">
-        <div className="site-heading">
-          <div className={`site-signal ${effectiveEnabled ? "active" : ""}`}>
+          <button
+            type="button"
+            role="switch"
+            className={`switch lg ${settings.enabled ? "on" : ""}`}
+            aria-checked={settings.enabled}
+            aria-label={settings.enabled ? "Disable protection" : "Enable protection"}
+            onClick={() => void updateSettings({ enabled: !settings.enabled })}
+          >
             <span />
-          </div>
-          <div className="site-copy">
-            <span>Current site</span>
-            <strong title={siteName}>{siteName}</strong>
-          </div>
-          {status.hostname ? (
-            <button type="button" className="quiet-button" onClick={toggleCurrentSite}>
-              {status.sitePaused ? "Resume" : "Pause here"}
-            </button>
-          ) : null}
-        </div>
-        <div className="meter-row">
-          <span>Scene luminance</span>
-          <div className="luminance-track" aria-label={`Scene luminance ${meterValue}%`}>
-            <span style={{ width: `${meterValue}%` }} />
-            <i className="threshold-marker" style={{ left: `${settings.brightnessThreshold * 100}%` }} />
-          </div>
-          <output>{status.videoPlaying ? `${meterValue}%` : "—"}</output>
-        </div>
-      </section>
+          </button>
+        </section>
 
-      <section className="section-block">
-        <div className="section-title">
-          <div>
-            <p className="eyebrow">Protection profile</p>
-            <h3>Choose your comfort level</h3>
-          </div>
-          {settings.preset === "custom" ? <span className="custom-pill">Custom</span> : null}
-        </div>
-        <div className="preset-grid">
-          {(Object.keys(PRESET_COPY) as Array<Exclude<ProtectionPreset, "custom">>).map(
-            (preset) => (
-              <button
-                type="button"
-                key={preset}
-                className={`preset-card ${settings.preset === preset ? "selected" : ""}`}
-                onClick={() => applyPreset(preset)}
-              >
-                <span className="preset-glyph" aria-hidden="true">
-                  {preset === "gentle" ? "◔" : preset === "balanced" ? "◑" : "●"}
-                </span>
-                <strong>{PRESET_COPY[preset].label}</strong>
-                <small>{PRESET_COPY[preset].description}</small>
+        <section className="card site-card" aria-label="Current site">
+          <div className="site-row">
+            <div className="site-id">
+              <span className={`site-dot ${effectiveEnabled ? "live" : ""}`} />
+              <div className="site-meta">
+                <span className="label">Current site</span>
+                <strong className="value" title={siteName}>{siteName}</strong>
+              </div>
+            </div>
+            {status.hostname ? (
+              <button type="button" className="btn ghost sm" onClick={toggleCurrentSite}>
+                {status.sitePaused ? "Resume" : "Pause here"}
               </button>
-            ),
-          )}
-        </div>
-      </section>
-
-      <section className="activity-strip">
-        <div>
-          <span className="activity-number">{status.protectionCount}</span>
-          <span>bright {status.protectionCount === 1 ? "moment" : "moments"} softened today</span>
-        </div>
-        <button type="button" className="calibrate-button" onClick={() => setCalibrating((value) => !value)}>
-          <TuneIcon /> Calibrate
-        </button>
-      </section>
-
-      {calibrating ? (
-        <section className="calibration-panel" aria-live="polite">
-          <div className="calibration-preview" aria-hidden="true">
-            <span />
+            ) : null}
           </div>
-          <div className="calibration-copy">
-            <strong>Comfort check</strong>
-            <p>Watch the soft pulse, then choose the response that feels right.</p>
-          </div>
-          <div className="calibration-actions">
-            <button type="button" onClick={() => applyPreset("gentle")}>Too dark</button>
-            <button type="button" onClick={() => applyPreset("balanced")}>Comfortable</button>
-            <button type="button" onClick={() => applyPreset("maximum")}>Stronger</button>
+          <div className="meter">
+            <div className="meter-head">
+              <span>Scene luminance</span>
+              <output className="mono">{status.videoPlaying ? `${meterValue}%` : "—"}</output>
+            </div>
+            <div className="meter-track" aria-label={`Scene luminance ${meterValue}%`}>
+              <span style={{ width: `${meterValue}%` }} />
+              <i className="threshold" style={{ left: `${settings.brightnessThreshold * 100}%` }} />
+            </div>
           </div>
         </section>
-      ) : null}
 
-      <AdvancedControls
-        settings={settings}
-        updateSettings={updateSettings}
-        exportSettings={exportSettings}
-        importSettings={importSettings}
-        importInput={importInput}
-      />
+        <section className="group">
+          <div className="group-head">
+            <h3>Comfort level</h3>
+            {settings.preset === "custom" ? <span className="tag">Custom</span> : null}
+          </div>
+          <div className="preset-grid">
+            {(Object.keys(PRESET_COPY) as Array<Exclude<ProtectionPreset, "custom">>).map(
+              (preset) => (
+                <button
+                  type="button"
+                  key={preset}
+                  className={`preset-card ${settings.preset === preset ? "selected" : ""}`}
+                  aria-pressed={settings.preset === preset}
+                  onClick={() => applyPreset(preset)}
+                >
+                  <span className="preset-check" aria-hidden="true"><CheckIcon /></span>
+                  <span className="preset-glyph" aria-hidden="true">
+                    {preset === "gentle" ? "◔" : preset === "balanced" ? "◑" : "●"}
+                  </span>
+                  <strong>{PRESET_COPY[preset].label}</strong>
+                  <small>{PRESET_COPY[preset].description}</small>
+                </button>
+              ),
+            )}
+          </div>
+        </section>
 
-      <footer>
+        <section className="card activity-card">
+          <div className="activity-count">
+            <strong className="mono">{status.protectionCount}</strong>
+            <span>bright {status.protectionCount === 1 ? "moment" : "moments"} softened today</span>
+          </div>
+          <button type="button" className="btn ghost sm" onClick={() => setCalibrating((value) => !value)}>
+            <TuneIcon /> Calibrate
+          </button>
+        </section>
+
+        {calibrating ? (
+          <section className="card calibration" aria-live="polite">
+            <div className="calibration-preview" aria-hidden="true">
+              <span />
+            </div>
+            <div className="calibration-copy">
+              <strong>Comfort check</strong>
+              <p>Watch the soft pulse, then choose the response that feels right.</p>
+            </div>
+            <div className="calibration-actions">
+              <button type="button" className="btn" onClick={() => applyPreset("gentle")}>Too dark</button>
+              <button type="button" className="btn" onClick={() => applyPreset("balanced")}>Comfortable</button>
+              <button type="button" className="btn" onClick={() => applyPreset("maximum")}>Stronger</button>
+            </div>
+          </section>
+        ) : null}
+
+        <AdvancedControls
+          settings={settings}
+          updateSettings={updateSettings}
+          exportSettings={exportSettings}
+          importSettings={importSettings}
+          importInput={importInput}
+        />
+      </div>
+
+      <footer className="footer">
         <span><LockIcon /> Processed privately on your device</span>
         <a href="https://github.com/C-W-D-Harshit/ytdimmer" target="_blank" rel="noreferrer">Source</a>
       </footer>
@@ -286,10 +288,10 @@ function AdvancedControls({
   importInput,
 }: AdvancedControlsProps) {
   return (
-    <details className="advanced-panel">
+    <details className="card advanced">
       <summary>
         <span><SlidersIcon /> Advanced controls</span>
-        <ChevronIcon />
+        <ChevronIcon className="chevron" />
       </summary>
       <div className="advanced-content">
         <RangeControl
@@ -317,7 +319,7 @@ function AdvancedControls({
           }
         />
 
-        <div className="schedule-row">
+        <div className="sched-row">
           <div>
             <strong>Night boost</strong>
             <span>
@@ -331,7 +333,7 @@ function AdvancedControls({
             role="switch"
             aria-label="Toggle scheduled night boost"
             aria-checked={settings.scheduleEnabled}
-            className={`switch ${settings.scheduleEnabled ? "checked" : ""}`}
+            className={`switch md ${settings.scheduleEnabled ? "on" : ""}`}
             onClick={() =>
               void updateSettings({ scheduleEnabled: !settings.scheduleEnabled })
             }
@@ -355,9 +357,9 @@ function AdvancedControls({
         ) : null}
 
         <div className="data-actions">
-          <button type="button" onClick={exportSettings}>Export</button>
-          <button type="button" onClick={() => importInput.current?.click()}>Import</button>
-          <button type="button" onClick={() => void updateSettings(DEFAULT_SETTINGS)}>Reset</button>
+          <button type="button" className="btn" onClick={exportSettings}>Export</button>
+          <button type="button" className="btn" onClick={() => importInput.current?.click()}>Import</button>
+          <button type="button" className="btn" onClick={() => void updateSettings(DEFAULT_SETTINGS)}>Reset</button>
           <input
             ref={importInput}
             type="file"
@@ -366,7 +368,7 @@ function AdvancedControls({
             onChange={(event) => void importSettings(event.target.files?.[0])}
           />
         </div>
-        <p className="shortcut-note">
+        <p className="shortcut">
           Quick toggle: <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd>
         </p>
       </div>
@@ -397,8 +399,8 @@ function RangeControl({
 }: RangeControlProps) {
   const progress = ((value - min) / (max - min)) * 100;
   return (
-    <label className="range-control">
-      <span><strong>{label}</strong><output>{Math.round(value * 100)}%</output></span>
+    <label className="range">
+      <span className="range-head"><strong>{label}</strong><output className="mono">{Math.round(value * 100)}%</output></span>
       <input
         type="range"
         min={min}
@@ -408,7 +410,7 @@ function RangeControl({
         style={{ "--range-progress": `${progress}%` } as React.CSSProperties}
         onChange={(event) => onChange(Number(event.target.value))}
       />
-      <small><span>{startLabel}</span><span>{endLabel}</span></small>
+      <small className="range-scale"><span>{startLabel}</span><span>{endLabel}</span></small>
     </label>
   );
 }
@@ -468,10 +470,10 @@ function formatHour(hour: number): string {
   return `${hour % 12} ${hour < 12 ? "AM" : "PM"}`;
 }
 
-function PowerIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9M7.05 5.64a8 8 0 1 0 9.9 0" /></svg>; }
+function CheckIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-11" /></svg>; }
 function TuneIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M10 14v6" /></svg>; }
 function SlidersIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h4M12 7h8M4 17h8M16 17h4M8 4v6M16 14v6" /></svg>; }
-function ChevronIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4" /></svg>; }
+function ChevronIcon({ className }: { className?: string }) { return <svg viewBox="0 0 24 24" aria-hidden="true" className={className}><path d="m8 10 4 4 4-4" /></svg>; }
 function LockIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg>; }
 
 export default App;
